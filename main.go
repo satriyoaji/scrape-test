@@ -1,92 +1,113 @@
 package main
 
 import (
-	"context"
-	"fmt"
+	"encoding/json"
 	"log"
+	"net/http"
 	_ "strings"
 	"sync"
-	"time"
-
-	"github.com/chromedp/chromedp"
 	"webscraper/config"
 	"webscraper/scraper"
 )
 
-func scrape(url string, wg *sync.WaitGroup) {
-	defer wg.Done()
+type ScrapeRequest struct {
+	URLs []string `json:"urls"`
+}
 
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
+type ScrapeResponse struct {
+	Results map[string]string `json:"results"`
+}
 
-	// Set timeout
-	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	var res string
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.OuterHTML("html", &res),
-	)
-	if err != nil {
-		log.Printf("Error scraping %s: %v", url, err)
+func scrapeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
-	log.Printf("Successfully scraped %s", url)
-	// Log or store `res` in a database or file
+	var req ScrapeRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil || len(req.URLs) == 0 {
+		http.Error(w, "Invalid JSON payload or empty URLs", http.StatusBadRequest)
+		return
+	}
+
+	results := make(map[string]string)
+	var wg sync.WaitGroup
+
+	proxyManager := scraper.NewProxyManager(config.GetEnv("PROXY_POOL"))
+
+	for _, url := range req.URLs {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+
+			// Use chromedp for dynamic scraping
+			s := scraper.NewScraper(true, proxyManager)
+			err := s.Scrape(url)
+			if err != nil {
+				results[url] = "Error: " + err.Error()
+			} else {
+				results[url] = "Successfully scraped"
+			}
+		}(url)
+	}
+
+	wg.Wait()
+
+	resp := ScrapeResponse{Results: results}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func main() {
-	urls := []string{"https://shopee.tw", "https://shopee.tw/products", "https://shopee.tw/deals"}
-	var wg sync.WaitGroup
-
-	for _, url := range urls {
-		wg.Add(1)
-		go scrape(url, &wg)
-	}
-
-	wg.Wait()
-	log.Println("Scraping completed.")
-}
-
-func main2() {
 	config.LoadConfig()
 
-	// Initialize managers
-	proxyManager := scraper.NewProxyManager(config.GetEnv("PROXY_POOL"))
-	queueManager := scraper.NewQueueManager(config.GetEnv("REDIS_URL"))
-	fmt.Println("Env: ", proxyManager, queueManager)
-	ctx := context.Background()
+	http.HandleFunc("/api/scrape", scrapeHandler)
 
-	// Push URLs to queue (example)
-	urls := []string{"https://shopee.tw", "https://shopee.tw/deals", "https://shopee.tw/products"}
-	for _, url := range urls {
-		queueManager.Push(ctx, "scrape_queue", url)
+	log.Printf("Server running on port %s, \n", config.GetEnv("API_PORT"))
+	err := http.ListenAndServe(config.GetEnv("API_PORT"), nil)
+	if err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
-
-	// Start workers
-	numWorkers := 100
-	wg := &sync.WaitGroup{}
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			scraperService := scraper.NewScraper(proxyManager)
-			for {
-				url := queueManager.Pop(ctx, "scrape_queue")
-				if url == "" {
-					break
-				}
-				scraperService.Scrape(url)
-			}
-		}()
-	}
-
-	wg.Wait()
-	log.Println("Scraping completed!")
 }
+
+//func main2() {
+//	config.LoadConfig()
+//
+//	// Initialize managers
+//	proxyManager := scraper.NewProxyManager(config.GetEnv("PROXY_POOL"))
+//	queueManager := scraper.NewQueueManager(config.GetEnv("REDIS_URL"))
+//	fmt.Println("Env: ", proxyManager, queueManager)
+//	ctx := context.Background()
+//
+//	// Push URLs to queue (example)
+//	urls := []string{"https://shopee.tw", "https://shopee.tw/deals", "https://shopee.tw/products"}
+//	for _, url := range urls {
+//		queueManager.Push(ctx, "scrape_queue", url)
+//	}
+//
+//	// Start workers
+//	numWorkers := 100
+//	wg := &sync.WaitGroup{}
+//
+//	for i := 0; i < numWorkers; i++ {
+//		wg.Add(1)
+//		go func() {
+//			defer wg.Done()
+//			scraperService := scraper.NewScraper(proxyManager)
+//			for {
+//				url := queueManager.Pop(ctx, "scrape_queue")
+//				if url == "" {
+//					break
+//				}
+//				scraperService.ScrapeWithColly(url)
+//			}
+//		}()
+//	}
+//
+//	wg.Wait()
+//	log.Println("Scraping completed!")
+//}
 
 //func main3() {
 //	// Setup proxy

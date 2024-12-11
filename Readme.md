@@ -1,186 +1,201 @@
-# Scraper Service
+# **Scalable Web Scraper with API Execution**
 
-## Overview
-This project is a scalable web scraping microservice designed to scrape websites like Shopee.tw or similar JavaScript-rendered websites. It uses two approaches:
-
-1. **Colly**: Lightweight and fast, ideal for static or simple pages.
-2. **Chromedp**: Headless browser for scraping JavaScript-heavy and dynamic pages.
-
-The service supports the use of proxy managers, concurrent scraping, and rate-limiting to handle high-volume scraping requests without getting blocked or banned.
+This project implements a scalable web scraper that supports API-based execution for scraping multiple URLs concurrently. It is designed to handle over **2 million requests per day**, incorporating proxy rotation, error handling, and concurrency.
 
 ---
 
-## Features
-- **Dynamic Scraper Selection**: Automatically choose between `colly` or `chromedp` based on the website's complexity.
-- **Proxy Management**: Rotates proxies to avoid IP bans and distribute requests.
-- **Concurrency**: Leverages Go’s goroutines to scrape multiple URLs simultaneously.
-- **Rate-Limiting**: Implements request throttling to prevent rate-limit bans.
-- **Scalable Design**: Designed to handle over 2 million requests per day with support for tools like Redis, RabbitMQ, and Kubernetes.
-- **Error Handling**: Logs errors and retries failed requests.
+## **Features**
+1. **API-Based Scraping**: Trigger scraping tasks dynamically via a POST API.
+2. **Concurrency**: Handles multiple scraping requests in parallel using Go routines.
+3. **Proxy Rotation**: Integrates free proxy management to avoid IP bans.
+4. **Rate Limiting**: Prevents overloading target servers and ensures compliance with their rate limits.
+5. **Scalable Architecture**: Designed to distribute load across multiple scraper instances.
+6. **Load Testing**: Includes a simulation script to validate high-load scenarios.
+7. **Monitoring**: Integrates monitoring and scaling tools to ensure reliability.
 
 ---
 
-## System Architecture
-The scraping service is designed as a microservice with scalability and fault tolerance in mind. Below is the high-level architecture:
+## **Pre-Requisites**
+1. **Software**:
+   - [Go 1.20+](https://golang.org/)
+   - [k6 Load Testing Tool](https://k6.io/docs/getting-started/installation/)
+   - Docker and Docker Compose (for deployment and scalability testing)
+   - Proxy list (configure free proxies for testing)
 
-### Diagram
-```text
-+-----------------------+    +-----------------------+
-|   API Gateway        | → |   Load Balancer       |
-+-----------------------+    +-----------------------+
-            |                           |
-  +-------------------+       +-------------------+
-  | Scraper Instance 1|       | Scraper Instance 2|
-  +-------------------+       +-------------------+
-            |                           |
-+----------------------+      +-----------------------+
-| Proxy Manager (Redis)|      | Proxy Manager (Redis)|
-+----------------------+      +-----------------------+
-            |                           |
-     +-----------------------+
-     | Database/Log Storage  |
-     +-----------------------+
+2. **Dependencies**:
+   - Install project dependencies using `go mod tidy`.
+
+3. **Environment Variables**:
+   - Configure a `.env` file for:
+     ```plaintext
+     PROXY_POOL=http://proxy1,http://proxy2,http://proxy3
+     ```
+
+---
+
+## **Steps to Run the Service**
+
+### **1. Clone the Repository**
+```bash
+git clone https://github.com/satriyoaji/scrape-test.git
+cd scrape-test
 ```
 
-### Components
-
-1. **API Gateway**:
-    - Exposes endpoints to trigger scraping tasks and retrieve results.
-    - Routes traffic to scraper instances.
-
-2. **Load Balancer**:
-    - Distributes traffic evenly across multiple scraper instances.
-    - Ensures horizontal scalability.
-
-3. **Scraper Service**:
-    - Core logic for scraping websites using `colly` or `chromedp`.
-    - Handles concurrent scraping with goroutines.
-    - Rotates proxies and implements rate limiting.
-
-4. **Proxy Manager**:
-    - Manages proxy pools for requests.
-    - Uses Redis to cache and rotate proxies efficiently.
-
-5. **Database/Log Storage**:
-    - Stores scraped data, logs, and error reports for analysis.
-
----
-
-## Setup
-### Prerequisites
-1. **Go (Golang)**: Install the latest version of Go.
-2. **Redis**: For managing proxies and queues.
-3. **Chromedp**: Ensure a headless Chrome browser is installed.
-
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-repo/scraper-service.git
-   cd scraper-service
-   ```
-
-2. Install dependencies:
-   ```bash
-   go mod tidy
-   ```
-
-3. Run Redis:
-   ```bash
-   docker run -d -p 6379:6379 redis
-   ```
-
-4. Start the service:
-   ```bash
-   go run main.go
-   ```
-
----
-
-## Usage
-### Configuration
-Update the `.env` file with your configuration:
-```env
-REDIS_URL=localhost:6379
-PROXY_POOL=your_proxy_pool
-RATE_LIMIT=5   # Max requests per second per scraper
+### **2. Install Dependencies**
+```bash
+go mod tidy
 ```
 
-### Trigger Scraping
-Modify the `urls` array in `main.go`:
-```go
-urls := []string{"https://shopee.tw", "https://shopee.tw/products", "https://shopee.tw/deals"}
+### **4. Adjust Env Vars**
+```bash
+cp .env.example .env #then adjust your own env vars
 ```
-Run the scraper:
+
+### **4. Run the API Service**
 ```bash
 go run main.go
 ```
-Logs will show the scraped results or errors.
 
----
+### **4. Trigger a Scraping Task**
+```bash
+curl -X POST http://localhost:8080/api/scrape \
+-H "Content-Type: application/json" \
+-d '{
+  "urls": [
+    "https://map.naver.com/",
+    "https://shopping.naver.com/",
+    "https://shoppinglive.naver.com/"
+  ]
+}'
+```
 
-## Scalability
-To handle more than 2 million requests per day:
+## **System Architecture**
+The scraper is built to handle massive scaling for over 2 million requests per day. The architecture is designed to be modular and resilient, employing proven tools like Redis and Kubernetes for queuing and scaling.
 
-1. **Horizontal Scaling**:
-    - Deploy multiple scraper instances in a Kubernetes cluster.
-    - Use a load balancer to distribute traffic.
+### **Architecture Design**
+```plain
+                  +----------------------+
+                  |  Client Requests     |
+                  +----------------------+
+                            |
+                            v
+              +-------------------------------+
+              |           API Gateway         |
+              +-------------------------------+
+                            |
+                            v
+       +----------------------------------------------+
+       |         Load Balancer (NGINX/AWS ELB)        |
+       +----------------------------------------------+
+                            |
+            +----------------------+------------------+
+            |                      |                  |
+   +------------------+   +------------------+   +------------------+
+   | Scraper Service  |   | Scraper Service  |   | Scraper Service  |
+   | Instance 1       |   | Instance 2       |   | Instance 3       |
+   +------------------+   +------------------+   +------------------+
+            |                      |                  |
+            +------------------------------------------+
+                            v
+       +----------------------------------------------+
+       |              Distributed Queue               |
+       |        (Redis/RabbitMQ for Tasks)            |
+       +----------------------------------------------+
+                            |
+                            v
+       +----------------------------------------------+
+       |          Centralized Storage (DB)           |
+       +----------------------------------------------+
 
-2. **Task Queue**:
-    - Use RabbitMQ or Redis as a queue manager to handle incoming scrape requests.
-    - Allow tasks to be processed asynchronously by multiple scraper instances.
+```
 
-3. **Proxy Pooling**:
-    - Integrate a proxy service with a large pool of IP addresses.
-    - Rotate proxies dynamically to avoid bans.
+## **Testing Simulation**
+### 1. **Load Testing with k6**
+To simulate over 2 million requests, use the k6 load testing tool.
+**Example load_test.js Script:**
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
 
-4. **Dynamic Rate-Limiting**:
-    - Adjust scraping speed based on website response to avoid triggering rate limits.
+export const options = {
+  vus: 1000, // Number of virtual users
+  duration: '30m', // Test duration
+};
 
-5. **Monitoring and Logging**:
-    - Use tools like Prometheus and Grafana for monitoring metrics (e.g., request success rate, errors).
-    - Store logs in a centralized system (e.g., ELK Stack).
+export default function () {
+  const url = 'http://localhost:8080/api/scrape';
+  const payload = JSON.stringify({
+    urls: [
+       "https://map.naver.com/",
+       "https://shopping.naver.com/",
+       "https://shoppinglive.naver.com/"
+    ],
+  });
 
----
+  const params = {
+    headers: { 'Content-Type': 'application/json' },
+  };
 
-## Testing with 2 Million Requests
-1. Simulate requests using a task queue:
-    - Push 2 million URLs into RabbitMQ or Redis queue.
+  const res = http.post(url, payload, params);
 
-2. Modify the scraper to fetch URLs from the queue:
-```go
-func fetchFromQueue(queue QueueManager) {
-    for {
-        url := queue.Pop()
-        if url == "" {
-            continue
-        }
-        scrape(url)
-    }
+  check(res, {
+    'is status 200': (r) => r.status === 200,
+    'is valid JSON': (r) => r.json('results') !== null,
+  });
+
+  sleep(1);
 }
 ```
 
-3. Run multiple scraper instances to process the queue concurrently.
-4. Monitor the progress and performance metrics.
+**Run Load Test**:
+```bash
+k6 run load_test.js
+```
 
+### 2. **Monitor Test Result**
+- Verify API responses. 
+- Ensure the service can handle concurrent requests without crashing.
+
+----
+
+### Monitoring and Scaling Tools
+1. Monitoring:
+- PrometheusMonitor API metrics and performance. 
+- Grafana: Visualize system health and alerts.
+
+2. Scaling:
+- Use Kubernetes Horizontal Pod Autoscaler (HPA) to scale scraper instances based on CPU and memory usage.
+
+## Deployment
+### Docker Compose Deployment
+Create a `docker-compose.yml` file to deploy the scraper service along with a Redis instance for task queuing.
+```yaml
+version: '3.8'
+services:
+  scraper-service:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PROXY_POOL=${PROXY_POOL}
+    depends_on:
+      - redis
+  redis:
+    image: redis:6.2
+    ports:
+      - "6379:6379"
+```
+**Build and Deploy:**
+```bash
+docker-compose up --build
+```
 ---
-
-## Future Enhancements
-1. **Captcha Handling**:
-    - Integrate third-party captcha-solving services like 2Captcha.
-
-2. **Headless Browser Pooling**:
-    - Manage a pool of headless browser instances to reduce startup overhead.
-
-3. **Adaptive Scraping**:
-    - Implement AI/ML to detect and adapt to anti-scraping mechanisms dynamically.
-
----
-
-## Contributing
-Contributions are welcome! Please create an issue or submit a pull request.
-
----
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for details.
-
+## **Future Enhancements**
+1. CAPTCHA Solving:
+- Integrate services like 2Captcha or Anti-Captcha.
+2. Advanced Proxy Rotation:
+- Use geo-targeted proxies for better IP distribution.
+3. Distributed Tracing:
+- Add tools like Jaeger for debugging large-scale systems.
+4. Performance Optimization:
+- Use caching to prevent redundant scraping of the same URLs.
